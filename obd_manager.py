@@ -1,114 +1,110 @@
 import obd
 import time
+import serial
 
 class OBDManager:
     def __init__(self):
         self.connection = None
         self.last_status = "Desconectado"
+        self.is_ready = False
 
     # ==========================================
-    # CONEXÃO
+    # PASSO 4: ESTABELECIMENTO DO CANAL (ADAPTADO)
     # ==========================================
-    def connect(self, port, protocolo="AUTO"):
+    def connect(self, target, protocolo="AUTO"):
+        """
+        No Windows/PC: target é 'COMx'
+        No Android: target deve ser o Endereço MAC ou Porta Serial Bluetooth mapeada.
+        """
         try:
-            print(f"Tentando conectar em {port} com protocolo {protocolo}...")
-            
-            # Ajuste de baudrate comum para ELM327 Bluetooth/USB
+            self.last_status = f"Iniciando Conexão em {target}..."
+            print(self.last_status)
+
+            # O python-obd tenta gerenciar o socket internamente.
+            # Se target for um MAC (format XX:XX:XX:XX:XX:XX), ele tenta usar sockets bluetooth.
             self.connection = obd.OBD(
-                portstr=port,
+                portstr=target,
                 baudrate=38400,
                 protocol=protocolo,
-                timeout=15,
+                timeout=10,
                 fast=False
             )
 
             if self.connection.is_connected():
-                self.last_status = f"Conectado: {self.connection.protocol_name()}"
-                return True
+                # PASSO 5: HANDSHAKE DE INICIALIZAÇÃO
+                return self._handshake()
             else:
-                self.last_status = "Falha na conexão (Adaptador não responde)"
+                self.last_status = "Falha: Adaptador não respondeu ao sinal."
                 return False
 
         except Exception as ex:
-            self.last_status = f"Erro: {str(ex)}"
-            print(f"Erro conexão: {ex}")
+            self.last_status = f"Erro de Hardware: {str(ex)}"
+            print(f"Erro no Passo 4: {ex}")
             return False
 
     # ==========================================
-    # DESCONECTAR
+    # PASSO 5: PROTOCOLO DE INICIALIZAÇÃO (HANDSHAKE)
     # ==========================================
+    def _handshake(self):
+        try:
+            self.last_status = "Realizando Handshake (AT Z, E0, SP 0)..."
+
+            # Comandos de inicialização manual para garantir prontidão do ELM327
+            commands = [
+                ("AT Z", "Resetando ELM327"),
+                ("AT E0", "Desativando Eco"),
+                ("AT SP 0", "Definindo Protocolo Automático")
+            ]
+
+            for cmd, desc in commands:
+                print(f"Enviando {cmd}: {desc}")
+                # O python-obd permite enviar comandos AT diretos via interface de baixo nível
+                response = self.connection.interface.write(cmd.encode() + b"\r")
+                time.sleep(1) # Aguarda processamento do ELM
+
+            self.is_ready = True
+            self.last_status = f"Pronto! Protocolo: {self.connection.protocol_name()}"
+            return True
+
+        except Exception as ex:
+            self.last_status = "Erro no Handshake: ELM327 instável."
+            print(f"Erro no Passo 5: {ex}")
+            return False
+
     def disconnect(self):
         try:
             if self.connection:
                 self.connection.close()
-                print("Conexão OBD encerrada.")
-        except Exception as ex:
-            print(f"Erro ao desconectar: {ex}")
+        except:
+            pass
         finally:
             self.connection = None
+            self.is_ready = False
             self.last_status = "Desconectado"
 
-    # ==========================================
-    # STATUS
-    # ==========================================
     def is_connected(self):
-        if not self.connection:
-            return False
-        return self.connection.is_connected()
+        return self.connection is not None and self.connection.is_connected()
 
     # ==========================================
-    # CONSULTA GENÉRICA (ROBUSTEZ)
+    # PASSO 6: LOOP DE LEITURA (SIMPLIFICADO PARA TESTE)
     # ==========================================
     def _query(self, command):
-        if not self.is_connected():
+        if not self.is_ready or not self.is_connected():
             return None
         try:
             response = self.connection.query(command)
             if not response.is_null():
                 return response.value.magnitude
-        except Exception as ex:
-            print(f"Erro na consulta {command}: {ex}")
-        return None
-
-    # ==========================================
-    # SENSORES
-    # ==========================================
-    def get_rpm(self):
-        return self._query(obd.commands.RPM)
-
-    def get_speed(self):
-        return self._query(obd.commands.SPEED)
-
-    def get_coolant_temp(self):
-        return self._query(obd.commands.COOLANT_TEMP)
-
-    def get_voltage(self):
-        # ELM_VOLTAGE retorna string ou valor dependendo da versão
-        try:
-            response = self.connection.query(obd.commands.ELM_VOLTAGE)
-            if not response.is_null():
-                # Tenta extrair apenas o número se vier com "V"
-                val = str(response.value).replace("V", "").strip()
-                return float(val)
         except:
             pass
         return None
 
-    # ==========================================
-    # DTC (FALHAS)
-    # ==========================================
-    def get_dtc(self):
+    def get_rpm(self): return self._query(obd.commands.RPM)
+    def get_speed(self): return self._query(obd.commands.SPEED)
+    def get_coolant_temp(self): return self._query(obd.commands.COOLANT_TEMP)
+    def get_voltage(self):
+        # Leitura de voltagem direta do ELM (independente do protocolo do carro)
         try:
-            if not self.is_connected(): return []
-            response = self.connection.query(obd.commands.GET_DTC)
-            return response.value if response.value else []
-        except:
-            return []
-
-    def clear_dtc(self):
-        try:
-            if not self.is_connected(): return False
-            response = self.connection.query(obd.commands.CLEAR_DTC)
-            return not response.is_null()
-        except:
-            return False
+            response = self.connection.query(obd.commands.ELM_VOLTAGE)
+            return float(str(response.value).split('V')[0])
+        except: return None
