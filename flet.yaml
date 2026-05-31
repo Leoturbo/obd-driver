@@ -1,0 +1,14 @@
+# Flet configuration for OBD Driver
+project_name: obd_driver
+version: 1.0.0
+build_number: 1
+
+android:
+  package_name: com.leodev.obddriver
+  permissions:
+    - android.permission.BLUETOOTH
+    - android.permission.BLUETOOTH_ADMIN
+    - android.permission.BLUETOOTH_SCAN
+    - android.permission.BLUETOOTH_CONNECT
+    - android.permission.ACCESS_FINE_LOCATION
+    - android.permission.INTERNET
