@@ -23,7 +23,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.27.0'
+          flutter-version: '3.21.0' # Tentativa de usar a versão solicitada ou deixar o flet gerenciar
 
       - name: Install Flet and Dependencies
         run: |
@@ -33,7 +33,7 @@ jobs:
 
       - name: Build APK
         run: |
-          flet build apk --verbose
+          echo "y" | flet build apk --verbose
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
